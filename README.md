@@ -4,7 +4,7 @@
 
 Evalora is a local Python toolkit for generating answers with Gemini, evaluating their quality against reference answers, and reusing responses through semantic caching. It pairs a FastAPI backend with a repeatable evaluation runner so experiments can be compared using scores, latency, token usage, and failure counts.
 
-**Status:** Initial backend milestone complete. Generation, structured judging, semantic caching, and batch evaluation are implemented. A results dashboard is planned.
+**Status:** Initial backend milestone complete. Generation, structured judging, semantic caching, and batch evaluation are implemented. A local Streamlit results dashboard is implemented.
 
 ## Features
 
@@ -172,9 +172,19 @@ requirements.txt           Direct Python dependencies
 python -m pytest -q
 ```
 
-The current backend has **18 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
+The current backend has **21 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
 
 Live development checks have also verified Gemini generation and judging, a complete three-case experiment, and exact and paraphrased cache hits. These are smoke checks, not general quality benchmarks.
+
+## Results dashboard
+
+```sh
+python -m streamlit run dashboard/app.py --server.address 127.0.0.1
+```
+
+Open [the local dashboard](http://127.0.0.1:8501). Select saved runs and models in the sidebar to compare quality, latency, generation tokens, and failures. Inspect individual questions, reference answers, generated answers, and judge reasoning. Download a comparison CSV for the current selection, and use Refresh reports after another experiment completes.
+
+The dashboard reads saved reports only: it does not read API credentials or make provider calls. Invalid reports are skipped with a warning. It handles empty results and failed evaluations, and warns when selected runs use different judges or datasets. Times in filenames and report metadata are UTC. Keep it bound to localhost because reports may contain private prompts and answers.
 
 ## CodeRabbit reviews
 
@@ -195,7 +205,7 @@ Similar wording can hide different meanings, especially numbers and negation. Di
 
 Token totals cover generation only, including provider-reported thinking tokens, and are not monetary cost estimates. API access and billing are separate from consumer chat subscriptions.
 
-Next milestones: a Streamlit results dashboard, broader evaluation datasets, and cache quality measurements on positive and negative question pairs.
+Next milestones: broader evaluation datasets and cache quality measurements on positive and negative question pairs.
 
 ## References
 
