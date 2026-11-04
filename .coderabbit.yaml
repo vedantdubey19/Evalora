@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+language: en-US
+reviews:
+  profile: chill
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - '!.env'
+    - '!.env.*'
+    - '!results/**'
+    - '!data/**'
+  path_instructions:
+    - path: 'app/**/*.py'
+      instructions: >-
+        Prioritize correctness, secret handling, sanitized provider errors, input
+        validation, judge-output validation, cache model separation, TTL and
+        concurrency. This is a single-user localhost prototype. Do not request
+        additional logging of prompts, API keys, or raw provider exceptions.
+    - path: 'experiments/**'
+      instructions: >-
+        Check failure isolation, reproducible model and judge metadata, dataset
+        validation, honest token accounting, and exclusion of failed evaluations
+        from average scores. Reports must never include API credentials.
+    - path: 'tests/**'
+      instructions: >-
+        Tests should run offline with deterministic fake providers and embeddings.
+        Do not require live Gemini calls, API credentials, or model downloads.
