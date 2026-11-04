@@ -9,7 +9,9 @@ class ConfigurationError(Exception):
 
 
 class ProviderError(Exception):
-    pass
+    def __init__(self, message='Gemini request failed.', *, reason='provider_error'):
+        super().__init__(message)
+        self.reason = reason
 
 
 class GeminiClient:
@@ -22,7 +24,7 @@ class GeminiClient:
             raise ConfigurationError('Set GEMINI_API_KEY in the project .env file.')
         model = self.settings.gemini_judge_model if judge else self.settings.gemini_model
         config = types.GenerateContentConfig(
-            temperature=0 if judge else 0.7,
+            temperature=0 if judge else self.settings.generation_temperature,
             max_output_tokens=4096,
             response_mime_type='application/json' if schema else 'text/plain',
             response_schema=schema,
@@ -47,6 +49,7 @@ class GeminiClient:
             return response.text, response.usage_metadata
         except ProviderError:
             raise
-        except Exception:
+        except Exception as error:
             # Provider exceptions can contain request URLs, keys, or user content.
-            raise ProviderError('Gemini request failed.') from None
+            reason = {429: 'rate_limited', 404: 'model_unavailable', 503: 'provider_unavailable'}.get(getattr(error, 'code', None), 'provider_error')
+            raise ProviderError(reason=reason) from None

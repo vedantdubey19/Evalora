@@ -21,10 +21,12 @@ class Usage(BaseModel):
 
 class Result(BaseModel):
     case_id: str
+    category: str = 'general'
     model: str
     judge_model: str
     question: str
     reference: str
+    error_reason: str | None = None
     status: Literal['ok', 'generation_error', 'configuration_error', 'evaluation_error']
     answer: str | None = None
     generation_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr = SecretStr('')
     gemini_model: str = 'gemini-2.5-flash'
     gemini_judge_model: str = 'gemini-2.5-flash'
+    generation_temperature: float = Field(default=0.7, ge=0, le=2)
     provider_timeout_ms: int = Field(default=60000, ge=1000, le=300000)
     cache_similarity_threshold: float = Field(default=0.95, ge=0, le=1)
     cache_ttl_seconds: int = Field(default=600, ge=1)

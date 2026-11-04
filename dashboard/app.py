@@ -11,12 +11,18 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.reports import load_reports, summarize
+from dashboard.cache_view import render_cache_view
 
 
 def render_dashboard(results_dir=None):
     st.set_page_config(page_title='Evalora · Results', page_icon='📊', layout='wide')
     st.title('Evalora')
     st.caption('LLM evaluation · Compare quality, speed, and failures')
+    view = st.sidebar.radio('View', ['Model evaluations', 'Cache accuracy'])
+    directory = Path(results_dir) if results_dir else ROOT / 'results'
+    if view == 'Cache accuracy':
+        render_cache_view(directory)
+        return
     st.sidebar.header('Saved evaluations')
     st.sidebar.button('Refresh reports')
     frame, skipped = load_reports(Path(results_dir) if results_dir else ROOT / 'results')
@@ -28,13 +34,16 @@ def render_dashboard(results_dir=None):
         return
 
     runs = list(frame.run.unique())
-    selected_runs = st.sidebar.multiselect('Runs', runs, default=runs[:2])
+    selected_runs = st.sidebar.multiselect('Runs', runs, default=runs[:1])
     available = frame[frame.run.isin(selected_runs)]
     models = list(available.model.unique())
     selected_models = st.sidebar.multiselect('Models', models, default=models)
     filtered = available[available.model.isin(selected_models)]
+    categories = list(filtered.category.unique())
+    selected_categories = st.sidebar.multiselect('Categories', categories, default=categories)
+    filtered = filtered[filtered.category.isin(selected_categories)]
     if filtered.empty:
-        st.info('Select at least one run and model to view results.')
+        st.info('Select at least one run, model, and category to view results.')
         return
 
     st.caption('Report times are UTC. Scores are judge estimates on a 1–5 scale; inspect references and reasoning before drawing conclusions.')
@@ -46,6 +55,8 @@ def render_dashboard(results_dir=None):
     if len(set(case_sets)) > 1:
         st.warning('Selected runs or models have different test cases. Their average scores are not directly comparable.')
 
+    if (filtered.status != 'ok').any():
+        st.warning('This comparison is incomplete. Scores include successful evaluations only and may reflect different subsets of questions.')
     success = filtered[filtered.status == 'ok']
     metrics = st.columns(4)
     metrics[0].metric('Evaluated', f'{len(success)} / {len(filtered)}')
@@ -80,6 +91,13 @@ def render_dashboard(results_dir=None):
     st.download_button('Download comparison CSV', summary.to_csv(index=False),
                        file_name='evalora-comparison.csv', mime='text/csv')
 
+    if len(success):
+        st.subheader('Scores by category')
+        category_scores = success.groupby(['category', 'model'], as_index=False).agg(
+            evaluated=('overall', 'count'), mean_score=('overall', 'mean'))
+        st.dataframe(category_scores, hide_index=True, width='stretch')
+        st.caption('Category scores pool successful evaluations across the selected runs.')
+
     st.subheader('Inspect a case')
     statuses = st.multiselect('Case status', list(filtered.status.unique()), default=list(filtered.status.unique()))
     cases = filtered[filtered.status.isin(statuses)]
@@ -90,6 +108,16 @@ def render_dashboard(results_dir=None):
                          format_func=lambda i: f'{cases.loc[i, "case_id"]} · {cases.loc[i, "model"]} · {cases.loc[i, "run"]}')
     row = cases.loc[index]
     st.caption(f'Status: {row.status} · Judge: {row.judge_model}')
+    error_labels = {
+        'rate_limited': 'The provider rate limit was reached.',
+        'judge_rate_limited': 'The judge rate limit was reached; further generation was skipped.',
+        'model_unavailable': 'This model was unavailable for generation.',
+        'provider_unavailable': 'The provider was temporarily unavailable.',
+        'judge_provider_unavailable': 'The judge was unavailable; further generation was skipped.',
+        'judge_model_unavailable': 'The configured judge model was unavailable.',
+    }
+    if row.error_reason in error_labels:
+        st.warning(error_labels[row.error_reason])
     st.write('Question')
     st.text(row.question)
     left, right = st.columns(2)

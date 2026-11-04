@@ -133,6 +133,28 @@ Datasets accept 1–100 cases with unique IDs. Reports are saved as timestamped 
 
 Each summary includes completed evaluations, failures, mean judge score, generation latency, and generation token totals. Failed cases are recorded and the run continues. Exit codes: `0` for a complete successful run, `1` for case failures, and `2` for invalid dataset or CLI configuration. Caching is disabled during benchmarks.
 
+## Day 2: compare models and measure cache accuracy
+
+The Day 2 dataset contains 24 public cases, six each for reasoning, factual answers, coding, and instruction following. The cache dataset has 12 reusable pairs and 12 different-answer pairs, including changed numbers, entities, negation, and directions.
+
+```sh
+GEMINI_JUDGE_MODEL=gemini-3.1-flash-lite python -m experiments.run_eval \
+  --dataset experiments/day2_cases.json \
+  --models gemini-2.5-flash gemini-3.1-flash-lite \
+  --request-interval 4 --model-interval gemini-2.5-flash=13
+python -m experiments.run_cache_eval
+```
+
+If a run ends with provider failures, use the same command with `--resume results/EXACT_REPORT_FILENAME.json` after quota becomes available. Only successful, validated rows from the same dataset fingerprint, judge, and temperature are reused; failures are retried. The new report records reuse counts and the earlier report time. Resuming combines observations from different times and is not a fresh independent run.
+
+The model comparison can make up to 96 small provider calls. Listed models may still be unavailable for generation; verify access before starting a large run. Request intervals are configurable examples, not guaranteed account quota limits. A 429 (quota), 404 (model unavailable), or 503 (provider unavailable) stops further calls to the affected model for that run. If the judge is affected, remaining cases are recorded as failures without additional generation calls. Resume later to retry failed rows when access is restored. Provider errors use safe reason labels; raw exceptions are never saved.
+
+Benchmark generation and judging use temperature zero. Reports record the dataset SHA-256, judge model, request intervals, and generation temperature. Zero temperature reduces variation but does not guarantee deterministic output. Generation latency excludes request pacing and judging; generation token totals exclude judge usage and are not cost estimates. Earlier Day 1 reports did not record temperature or dataset hashes and should not be treated as identical experiments.
+
+The dashboard adds category filters and category scores under **Model evaluations**, plus a **Cache accuracy** view with precision, recall, false-positive rates, and per-pair mismatches. Cache experiments use real embeddings without LLM API calls; the first use may download public model weights. Each pair starts with a fresh cache containing only its source question, so these results do not test nearest-neighbor behavior in a large corpus.
+
+Cache rates exclude embedding errors. Undefined rates are reported as missing, rather than zero. These small datasets are development checks, not a representative benchmark or a guarantee of safe reuse. Use held-out pairs before tuning thresholds. See `docs/day2-results.md` for the measured results and limitations.
+
 ## Semantic cache
 
 Set `use_cache` to `true` on `/generate` to opt in. The first successful opted-in request loads `sentence-transformers/all-MiniLM-L6-v2`, downloading public model weights if necessary.
@@ -161,6 +183,7 @@ app/
 experiments/
   run_eval.py              Experiment command-line entry point
   sample_cases.json        Public sample evaluation dataset
+dashboard/                 Read-only model comparison and cache accuracy views
 tests/                     Offline tests with fake provider responses
 .env.example               Configuration template, without secrets
 requirements.txt           Direct Python dependencies
@@ -172,7 +195,7 @@ requirements.txt           Direct Python dependencies
 python -m pytest -q
 ```
 
-The current backend has **21 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
+The current backend has **43 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
 
 Live development checks have also verified Gemini generation and judging, a complete three-case experiment, and exact and paraphrased cache hits. These are smoke checks, not general quality benchmarks.
 
@@ -205,7 +228,7 @@ Similar wording can hide different meanings, especially numbers and negation. Di
 
 Token totals cover generation only, including provider-reported thinking tokens, and are not monetary cost estimates. API access and billing are separate from consumer chat subscriptions.
 
-Next milestones: broader evaluation datasets and cache quality measurements on positive and negative question pairs.
+Next milestones: held-out evaluation datasets, calibrated judging, and stronger cache reuse policies informed by the measured false hits.
 
 ## References
 
