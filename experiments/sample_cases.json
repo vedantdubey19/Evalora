@@ -1,0 +1,5 @@
+[
+  {"id": "arithmetic", "question": "What is 17 multiplied by 6? Give a short answer.", "reference": "17 multiplied by 6 equals 102."},
+  {"id": "python-mutability", "question": "In Python, how do a list and a tuple differ in mutability? Answer in one sentence.", "reference": "Lists are mutable; tuples are immutable, although objects stored inside a tuple can themselves be mutable."},
+  {"id": "cache-concept", "question": "What does a semantic cache do in an LLM application? Answer in one sentence.", "reference": "A semantic cache reuses a stored response for a sufficiently similar input, reducing repeated LLM calls, with a risk of incorrect reuse when meanings differ."}
+]
