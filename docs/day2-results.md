@@ -18,8 +18,8 @@ Fixed judge: `gemini-3.1-flash-lite`. Dataset SHA-256: `2a19313009759e2c6291d5e0
 
 | Generation model | Dataset cases | Completed evaluations | Failures |
 | --- | ---: | ---: | ---: |
-| gemini-2.5-flash | 24 | 4 | 20 |
-| gemini-3.1-flash-lite | 24 | 1 | 23 |
+| gemini-2.5-flash | 24 | 5 | 19 |
+| gemini-3.1-flash-lite | 24 | 7 | 17 |
 
 Gemini 2.5 Flash returned HTTP 429 with the explicitly identified daily free-tier quota `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, value 20. A diagnostic check of Gemini 3.1 Flash-Lite returned HTTP 503. Earlier probing also showed Gemini 2.5 Flash-Lite returning 404 despite being listed. A model listing alone does not prove it can currently serve generation requests.
 
@@ -29,8 +29,18 @@ Successful rows scored 5/5 in this partial sample, but the low completion counts
 
 Raw reports remain local under `results/` and are ignored by Git:
 
-- `eval-20261104T202615-746877Z.json`
-- `eval-20261104T202615-746877Z.csv`
+- `eval-20261105T153037-077568Z.json`
+- `eval-20261105T153037-077568Z.csv`
+
+## Resume attempt on 5 November
+
+The original report contained five successful evaluations. The latest resume reused those five and added seven, bringing the total to **12 of 48**: five Gemini 2.5 Flash answers and seven Gemini 3.1 Flash-Lite answers. **36 evaluations remain incomplete.**
+
+In this attempt the stopping reasons were provider unavailability (HTTP 503), including the fixed judge becoming unavailable. Rows after a circuit breaker opens are marked incomplete without making further API calls; a failure count is therefore not a count of attempted API calls. The earlier daily-quota error remains part of the experiment history, but it does not explain every later failure.
+
+A separate fresh comparison of Gemini 3.5 Flash and Gemini 3.5 Flash-Lite was also attempted after both passed short generation checks. The fixed judge then returned a provider-unavailable error. That separate report, `eval-20261105T153259-093838Z.json`, has no completed evaluations and must not be combined with the original comparison: its judge and generation models differ.
+
+The newest resumable original-comparison report is `results/eval-20261105T153037-077568Z.json`. The original `eval-20261104T202615-746877Z.json` remains available for provenance. No application code or API credentials were changed during this retry.
 
 ## Cache matching results
 
@@ -61,10 +71,10 @@ GEMINI_JUDGE_MODEL=gemini-3.1-flash-lite python -m experiments.run_eval \
   --dataset experiments/day2_cases.json \
   --models gemini-2.5-flash gemini-3.1-flash-lite \
   --request-interval 4 --model-interval gemini-2.5-flash=13 \
-  --resume results/eval-20261104T202615-746877Z.json
+  --resume results/eval-20261105T153037-077568Z.json
 ```
 
-The five successful evaluations are reused, and failed cases are retried. Resume compatibility checks require the same dataset fingerprint, judge, and generation temperature, and validate each reused answer, score, and latency. The resumed report records its origin and reuse count. Account quotas can change; the request intervals above are examples, not a guarantee of capacity.
+The twelve successful evaluations are reused, and failed cases are retried. Resume compatibility checks require the same dataset fingerprint, judge, and generation temperature, and validate each reused answer, score, and latency. The resumed report records its origin and reuse count. Account quotas can change; the request intervals above are examples, not a guarantee of capacity.
 
 View active quotas in [Google AI Studio](https://aistudio.google.com/rate-limit). Google documents per-project limits and daily quota reset behavior in its [rate limit documentation](https://ai.google.dev/gemini-api/docs/rate-limits).
 
