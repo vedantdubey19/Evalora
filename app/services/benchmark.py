@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.core.config import Settings
 from app.services.evaluation import Scores, evaluate
+from app.services.answer_checks import AnswerChecks, check_answer
+from app.services.rubrics import WEIGHTS, overall_score, score_schema
 from app.services.llm_client import ConfigurationError, GeminiClient, ProviderError
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20000)]
@@ -24,6 +26,7 @@ class EvalCase(BaseModel):
     category: str = Field(default='general', min_length=1, max_length=100)
     question: Text
     reference: Text
+    checks: AnswerChecks = Field(default_factory=AnswerChecks)
 
 
 def validate_cases(data):
@@ -36,14 +39,22 @@ def validate_cases(data):
 
 
 def dataset_fingerprint(cases):
-    return hashlib.sha256(json.dumps([c.model_dump() for c in cases], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    payload = []
+    for case in cases:
+        item = case.model_dump(exclude={'checks'})
+        checks = case.checks.model_dump(exclude_defaults=True)
+        if checks:
+            item['checks'] = checks
+        payload.append(item)
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def completed_rows(prior, cases, models, settings):
     if prior is None:
         return {}
     if not isinstance(prior, dict) or (
-        prior.get('dataset_sha256') != dataset_fingerprint(cases)
+        prior.get('rubric_version', 'legacy-v1') != settings.evaluation_rubric
+        or prior.get('dataset_sha256') != dataset_fingerprint(cases)
         or prior.get('judge_model') != settings.gemini_judge_model
         or prior.get('generation_temperature') != 0
         or prior.get('cache_enabled') is not False
@@ -67,8 +78,17 @@ def completed_rows(prior, cases, models, settings):
         evaluation = row.get('evaluation')
         if not isinstance(evaluation, dict):
             raise ValueError('Resume row has no valid evaluation.')
-        scores = Scores.model_validate(evaluation)
-        expected = round((scores.correctness + scores.relevance + scores.clarity) / 3, 2)
+        rubric = settings.evaluation_rubric
+        if evaluation.get('rubric_version', 'legacy-v1') != rubric:
+            raise ValueError('Inconsistent evaluation rubric.')
+        scores = score_schema(rubric).model_validate(evaluation)
+        expected = overall_score(scores, rubric)
+        if rubric == 'quality-v2':
+            if evaluation.get('rubric_version') != rubric or evaluation.get('score_weights') != WEIGHTS:
+                raise ValueError('Inconsistent resumed rubric.')
+            checked = check_answer(row['answer'], case.checks)
+            if any(evaluation.get(key) != value for key, value in checked.items()):
+                raise ValueError('Inconsistent resumed output checks.')
         if evaluation.get('overall') != expected:
             raise ValueError('Inconsistent resumed score.')
         for field in ['generation_ms', 'evaluation_ms']:
@@ -106,6 +126,8 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
         raise ValueError('Unknown model interval.')
     if any(not math.isfinite(v) or not 0 <= v <= 60 for v in [request_interval, *intervals.values()]):
         raise ValueError('Intervals must be between 0 and 60.')
+    if settings.evaluation_rubric == 'legacy-v1' and any(c.checks.model_dump(exclude_defaults=True) for c in cases):
+        raise ValueError('Output checks require quality-v2.')
     reused = completed_rows(prior_report, cases, models, settings)
     rows = []
     for model in models:
@@ -116,7 +138,7 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
             else:
                 row = {'case_id': case.id, 'category': case.category, 'model': model,
                        'judge_model': settings.gemini_judge_model, 'question': case.question,
-                       'reference': case.reference, 'status': 'pending', 'error_reason': None,
+                       'reference': case.reference, 'checks': case.checks.model_dump(exclude_defaults=True), 'status': 'pending', 'error_reason': None,
                        'answer': None, 'generation_ms': None, 'evaluation_ms': None,
                        'usage': None, 'evaluation': None, 'reused': False,
                        'generation_attempts': 0, 'evaluation_attempts': 0, 'retries': 0}
@@ -139,6 +161,8 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
                 'reused': sum(r['reused'] for r in subset),
                 'provider_attempts': sum(r['generation_attempts'] + r['evaluation_attempts'] for r in subset),
                 'retries': sum(r['retries'] for r in subset),
+                'checks_failed': sum(r['evaluation'].get('checks_passed') is False for r in success),
+                'checked_cases': sum(r['evaluation'].get('checks_passed') is not None for r in success),
                 'mean_score': round(mean(r['evaluation']['overall'] for r in success), 2) if success else None,
                 'mean_generation_ms': round(mean(r['generation_ms'] for r in generated), 2) if generated else None,
                 'generation_total_tokens': sum((r['usage'] or {}).get('total_tokens') or 0 for r in generated),
@@ -146,7 +170,7 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
         return {'created_at': created_at, 'updated_at': datetime.now(timezone.utc).isoformat(),
                 'run_state': state, 'schema_version': 2, 'accounting_version': 'day4-v1',
                 'planned_cases': len(rows), 'processed_cases': sum(r['status'] != 'pending' for r in rows),
-                'judge_model': settings.gemini_judge_model, 'dataset_sha256': dataset_fingerprint(cases),
+                'judge_model': settings.gemini_judge_model, 'rubric_version': settings.evaluation_rubric, 'dataset_sha256': dataset_fingerprint(cases),
                 'resumed_rows': len(reused),
                 'resumed_from_created_at': prior_report.get('created_at') if prior_report else None,
                 'generation_temperature': 0, 'request_interval_seconds': request_interval,
@@ -253,7 +277,7 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
                                   'output_tokens': getattr(usage, 'candidates_token_count', None),
                                   'total_tokens': getattr(usage, 'total_token_count', None)})
                 try:
-                    row['evaluation'] = evaluate(provider, row['question'], answer, row['reference'])
+                    row['evaluation'] = evaluate(provider, row['question'], answer, row['reference'], checks=AnswerChecks.model_validate(row['checks']))
                     row['status'] = 'ok'
                 except (ProviderError, ConfigurationError) as error:
                     row.update(status='evaluation_error', error_reason=getattr(error, 'reason', 'configuration_error'))

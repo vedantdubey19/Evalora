@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=BASE_DIR / 'results')
     parser.add_argument('--limit', type=int, help='Run only the first N cases.')
     parser.add_argument('--resume', type=Path, help='Reuse successful rows from a matching earlier report; retry failures only.')
+    parser.add_argument('--rubric', choices=['legacy-v1', 'quality-v2'], help='Scoring rubric; defaults to EVALUATION_RUBRIC (legacy-v1 for compatibility).')
     parser.add_argument('--max-retries', type=int, default=2, help='Additional attempts per provider stage, from 0 to 3 (default 2).')
     parser.add_argument('--max-retry-delay', type=float, default=30, help='Maximum retry wait in seconds, from 0 to 60.')
     parser.add_argument('--request-interval', type=float, default=4, help='Minimum seconds between calls to the same model (0–60).')
@@ -50,6 +51,10 @@ def main():
             parser.error('--limit must be at least 1')
         cases = cases[:args.limit]
     settings = Settings()
+    if args.rubric:
+        settings = settings.model_copy(update={'evaluation_rubric': args.rubric})
+    if settings.evaluation_rubric == 'legacy-v1' and any(c.checks.model_dump(exclude_defaults=True) for c in cases):
+        parser.error('This dataset has output checks; use --rubric quality-v2.')
     if not settings.has_api_key:
         parser.exit(2, 'Set GEMINI_API_KEY in the project .env file.\n')
     models = args.models or [settings.gemini_model]
@@ -74,7 +79,7 @@ def main():
         print('Progress file:', writer.json_path, flush=True)
         report = run_benchmark(cases, models, settings, on_result=progress, request_interval=args.request_interval, model_intervals=intervals, prior_report=prior, on_checkpoint=writer.checkpoint, max_retries=args.max_retries, max_retry_delay=args.max_retry_delay)
     except ValueError:
-        parser.exit(2, 'Resume report does not match the dataset, judge, or generation settings, or has invalid completed rows.\n')
+        parser.exit(2, 'Resume report does not match the dataset, judge, or generation settings, or scoring rubric, or has invalid completed rows.\n')
     except KeyboardInterrupt:
         if writer is not None and writer.json_path.exists():
             print('Stopped. Resume from:', writer.json_path, flush=True)

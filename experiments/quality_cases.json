@@ -1,0 +1,6 @@
+[
+  {"id":"quality-json","category":"instruction_following","question":"Return only JSON with city set to Paris and country set to France, using exactly those two keys.","reference":"{\"city\":\"Paris\",\"country\":\"France\"}","checks":{"require_json":true,"json_keys":["city","country"]}},
+  {"id":"quality-exact","category":"reasoning","question":"What is 17 multiplied by 6? Return only the integer.","reference":"102","checks":{"expected_exact":"102","max_words":1}},
+  {"id":"quality-concise","category":"factual","question":"What does HTTP 404 mean? Answer in at most eight words.","reference":"The requested resource was not found.","checks":{"max_words":8}},
+  {"id":"quality-literal","category":"instruction_following","question":"Return exactly READY in uppercase, with no surrounding whitespace.","reference":"READY","checks":{"expected_exact":"READY","trim_outer_whitespace":false}}
+]

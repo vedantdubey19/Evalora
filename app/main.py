@@ -7,6 +7,7 @@ from typing import Annotated
 from app.core.config import Settings
 from app.services.cache import SemanticCache, SentenceEncoder
 from app.services.evaluation import evaluate
+from app.services.answer_checks import AnswerChecks, check_answer
 from app.services.llm_client import ConfigurationError, GeminiClient, ProviderError
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20000)]
@@ -22,6 +23,17 @@ class EvaluationRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     question: Text
     answer: Text
+    reference: Text | None = None
+
+
+class CheckRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    answer: str = Field(min_length=1, max_length=20000)
+    checks: AnswerChecks = Field(default_factory=AnswerChecks)
+
+
+class QualityEvaluationRequest(CheckRequest):
+    question: Text
     reference: Text | None = None
 
 
@@ -81,6 +93,20 @@ def create_app(settings=None, provider=None, cache=None):
     def judge(request: EvaluationRequest):
         try:
             return evaluate(provider, request.question, request.answer, request.reference)
+        except ConfigurationError:
+            raise HTTPException(503, 'Set GEMINI_API_KEY in the project .env file.') from None
+        except ProviderError:
+            raise HTTPException(502, 'Gemini evaluation failed.') from None
+
+    @app.post('/check')
+    def check(request: CheckRequest):
+        return check_answer(request.answer, request.checks)
+
+    @app.post('/evaluate/quality')
+    def quality(request: QualityEvaluationRequest):
+        try:
+            return evaluate(provider, request.question, request.answer, request.reference,
+                            rubric='quality-v2', checks=request.checks)
         except ConfigurationError:
             raise HTTPException(503, 'Set GEMINI_API_KEY in the project .env file.') from None
         except ProviderError:

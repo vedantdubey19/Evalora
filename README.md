@@ -206,6 +206,36 @@ Atomic checkpoints protect completed writes from ordinary process interruption; 
 
 See [Day 4 validation](docs/day4-reliability.md) for the failure scenarios tested without Gemini API calls.
 
+## Evaluation quality — Day 5
+
+The original three-score rubric remains the default (`legacy-v1`) for compatibility. Opt into `quality-v2` for correctness, instruction following, relevance, completeness, and clarity. The weighted overall score uses 35%, 25%, 15%, 15%, and 10% respectively. These are versioned project-policy choices, not statistically calibrated weights.
+
+```sh
+python -m experiments.run_eval --dataset experiments/quality_cases.json --rubric quality-v2
+```
+
+The quality dataset includes output requirements. Those datasets are rejected in legacy mode so constraints cannot be silently ignored. The four-case example has eight provider stages before retries; it requires API access. No live quality benchmark was run during this milestone.
+
+### Check output requirements without an API key
+
+```sh
+curl -X POST http://127.0.0.1:8000/check \
+  -H 'Content-Type: application/json' \
+  -d '{"answer":" READY\n","checks":{"expected_exact":"READY","trim_outer_whitespace":false}}'
+```
+
+`POST /check` performs deterministic checks only. Supported requirements are case-sensitive expected text, an optional whitespace-separated word limit, valid JSON, and an exact set of top-level JSON object keys. Exact text comparison trims outer whitespace by default; set `trim_outer_whitespace` to false when formatting must be strict. Answer text is preserved on these new routes. JSON checks reject Markdown fences, duplicate object keys and nonstandard NaN/Infinity constants. They do not execute generated code or verify factual claims. When no checks are supplied, `checks_passed` is null, not true.
+
+### Judge answer quality
+
+`POST /evaluate/quality` accepts question, answer, optional reference, and the same checks object. It always uses quality-v2. `POST /evaluate` retains the configured rubric, defaulting to legacy-v1. `EVALUATION_RUBRIC` or the CLI `--rubric` option selects the benchmark rubric.
+
+Quality results include five ratings, a weighted overall score, reasoning, limitations, rubric metadata, and separate deterministic-check outcomes. A failed output requirement does not secretly rewrite the judge score; inspect both. Scores without a reference are labeled `unverified_judgment`, and scores with one remain model opinions based on the supplied reference, not independently verified facts.
+
+Reports record their rubric version. Resumption rejects a changed rubric or changed requirements and recomputes saved deterministic results before reuse. Cases without requirements retain their historical dataset fingerprints. The dashboard shows extra dimensions, requested requirements and check results. Mixed-rubric selections do not receive an aggregate mean or combined score chart.
+
+See [Day 5 quality validation](docs/day5-quality.md). The offline examples test mechanics and format constraints; they do not establish LLM-judge reliability.
+
 ## Project structure
 
 ```text
@@ -232,7 +262,7 @@ requirements.txt           Direct Python dependencies
 python -m pytest -q
 ```
 
-The current backend has **96 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
+The current backend has **122 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
 
 Live development checks have also verified Gemini generation and judging, a complete three-case experiment, and exact and paraphrased cache hits. These are smoke checks, not general quality benchmarks.
 

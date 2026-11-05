@@ -40,14 +40,14 @@ class ReportWriter:
         fields = ['case_id', 'category', 'model', 'judge_model', 'status', 'error_reason',
                   'reused', 'generation_attempts', 'evaluation_attempts', 'retries',
                   'generation_ms', 'evaluation_ms', 'total_tokens',
-                  'correctness', 'relevance', 'clarity', 'overall']
+                  'correctness', 'relevance', 'clarity', 'instruction_following', 'completeness', 'rubric_version', 'checks_passed', 'overall']
         output = io.StringIO(newline='')
         writer = csv.DictWriter(output, fieldnames=fields)
         writer.writeheader()
         for row in report['results']:
             flat = {key: row.get(key) for key in fields}
             flat['total_tokens'] = (row.get('usage') or {}).get('total_tokens')
-            for key in ['correctness', 'relevance', 'clarity', 'overall']:
+            for key in ['correctness', 'relevance', 'clarity', 'instruction_following', 'completeness', 'rubric_version', 'checks_passed', 'overall']:
                 flat[key] = (row.get('evaluation') or {}).get(key)
             writer.writerow(flat)
         atomic_text(self.csv_path, output.getvalue())

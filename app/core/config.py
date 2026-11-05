@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr = SecretStr('')
     gemini_model: str = 'gemini-2.5-flash'
     gemini_judge_model: str = 'gemini-2.5-flash'
+    evaluation_rubric: Literal['legacy-v1', 'quality-v2'] = 'legacy-v1'
     generation_temperature: float = Field(default=0.7, ge=0, le=2)
     provider_timeout_ms: int = Field(default=60000, ge=1000, le=300000)
     cache_match_mode: Literal['exact', 'guarded'] = 'exact'

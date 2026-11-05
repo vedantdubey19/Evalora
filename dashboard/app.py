@@ -49,6 +49,10 @@ def render_dashboard(results_dir=None):
     st.caption('Report times are UTC. Scores are judge estimates on a 1–5 scale; inspect references and reasoning before drawing conclusions.')
     if filtered.judge_model.nunique() > 1:
         st.warning('These results use different judges. Score differences may reflect the judge as well as the generation model.')
+    mixed_rubrics = filtered.rubric_version.nunique() > 1
+    if mixed_rubrics:
+        st.warning('Selected results use different scoring rubrics. Aggregate judge scores and the score chart are hidden; compare within one rubric.')
+    st.caption('Scoring rubric: ' + ', '.join(sorted(filtered.rubric_version.unique())))
     case_sets = []
     for _, group in filtered.groupby(['run', 'model']):
         case_sets.append(frozenset(zip(group.case_id, group.question, group.reference)))
@@ -60,7 +64,7 @@ def render_dashboard(results_dir=None):
     success = filtered[filtered.status == 'ok']
     metrics = st.columns(4)
     metrics[0].metric('Evaluated', f'{len(success)} / {len(filtered)}')
-    metrics[1].metric('Mean judge score', f'{success.overall.mean():.2f} / 5' if len(success) else '—')
+    metrics[1].metric('Mean judge score', f'{success.overall.mean():.2f} / 5' if len(success) and not mixed_rubrics else '—')
     latency = pd.to_numeric(filtered.generation_ms, errors='coerce').mean()
     metrics[2].metric('Mean generation time', f'{latency / 1000:.2f} s' if pd.notna(latency) else '—')
     failure_states = ['generation_error', 'evaluation_error', 'configuration_error', 'interrupted']
@@ -85,7 +89,9 @@ def render_dashboard(results_dir=None):
         with left:
             st.write('Mean judge score')
             scores = chart.dropna(subset=['Mean score'])
-            if len(scores):
+            if mixed_rubrics:
+                st.info('Select runs with the same rubric to chart judge scores.')
+            elif len(scores):
                 st.bar_chart(scores.set_index('Run / model')[['Mean score']], color='#4f46e5')
             else:
                 st.info('No successful evaluations to chart.')
@@ -109,10 +115,15 @@ def render_dashboard(results_dir=None):
 
     if len(success):
         st.subheader('Scores by category')
-        category_scores = success.groupby(['category', 'model'], as_index=False).agg(
+        category_scores = success.groupby(['category', 'model', 'rubric_version'], as_index=False).agg(
             evaluated=('overall', 'count'), mean_score=('overall', 'mean'))
         st.dataframe(category_scores, hide_index=True, width='stretch')
         st.caption('Category scores pool successful evaluations across the selected runs.')
+
+    checked = success[success.checks_passed.notna()]
+    if len(checked):
+        failed_checks = int((checked.checks_passed == False).sum())
+        st.caption(f'Output requirements: {len(checked) - failed_checks}/{len(checked)} checked cases passed. These checks do not prove factual correctness.')
 
     st.subheader('Inspect a case')
     statuses = st.multiselect('Case status', list(filtered.status.unique()), default=list(filtered.status.unique()))
@@ -153,9 +164,20 @@ def render_dashboard(results_dir=None):
     if row.status == 'ok':
         st.write('Judge scores')
         st.dataframe(pd.DataFrame([{'Correctness': row.correctness, 'Relevance': row.relevance,
-                                    'Clarity': row.clarity, 'Overall': row.overall}]), hide_index=True)
+                                    'Clarity': row.clarity, 'Instruction following': row.instruction_following,
+                                    'Completeness': row.completeness, 'Overall': row.overall}]), hide_index=True)
         st.write('Judge reasoning')
         st.text(row.reasoning)
+        if row.checks:
+            st.write('Requested output requirements')
+            st.json(row.checks)
+        if row.deterministic_checks:
+            st.write('Deterministic output checks')
+            st.dataframe(pd.DataFrame(row.deterministic_checks), hide_index=True)
+        if row.limitations:
+            st.write('Judge limitations')
+            for limitation in row.limitations:
+                st.text(limitation)
     else:
         st.info('This case did not complete evaluation. See its status above; raw provider errors are not stored.')
 

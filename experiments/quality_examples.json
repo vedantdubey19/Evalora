@@ -1,0 +1,10 @@
+[
+  {"id":"correct-exact","answer":"102","checks":{"expected_exact":"102","max_words":1},"expected_checks_passed":true},
+  {"id":"correct-fact-wrong-format","answer":"The answer is 102.","checks":{"expected_exact":"102","max_words":1},"expected_checks_passed":false},
+  {"id":"valid-json","answer":"{\"city\":\"Paris\",\"country\":\"France\"}","checks":{"require_json":true,"json_keys":["city","country"]},"expected_checks_passed":true},
+  {"id":"markdown-is-not-json","answer":"```json\n{\"city\":\"Paris\"}\n```","checks":{"require_json":true},"expected_checks_passed":false},
+  {"id":"extra-key","answer":"{\"city\":\"Paris\",\"country\":\"France\",\"extra\":true}","checks":{"json_keys":["city","country"]},"expected_checks_passed":false},
+  {"id":"duplicate-key","answer":"{\"city\":\"Paris\",\"city\":\"Rome\"}","checks":{"json_keys":["city"]},"expected_checks_passed":false},
+  {"id":"strict-whitespace","answer":" READY\n","checks":{"expected_exact":"READY","trim_outer_whitespace":false},"expected_checks_passed":false},
+  {"id":"trimmed-whitespace","answer":" READY\n","checks":{"expected_exact":"READY"},"expected_checks_passed":true}
+]
