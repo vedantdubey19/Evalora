@@ -4,12 +4,12 @@
 
 Evalora is a local Python toolkit for generating answers with Gemini, evaluating their quality against reference answers, and reusing responses through semantic caching. It pairs a FastAPI backend with a repeatable evaluation runner so experiments can be compared using scores, latency, token usage, and failure counts.
 
-**Status:** Initial backend milestone complete. Generation, structured judging, semantic caching, and batch evaluation are implemented. A local Streamlit results dashboard is implemented.
+**Status:** Local application complete. Generation, five-dimension quality scoring, deterministic answer checks, conservative caching, resumable batch evaluation, and dashboard run controls are implemented. See [release verification](docs/release.md) for the supported scope and remaining external validation.
 
 ## Features
 
 - **Gemini generation:** configurable model, request timeout, input validation, and sanitized provider errors.
-- **LLM-as-a-Judge:** correctness, relevance, and clarity scores from 1–5, with reasoning and an optional reference answer.
+- **LLM-as-a-Judge:** versioned scoring, including correctness, relevance, clarity, instruction following, and completeness, with deterministic answer checks and explicit limitations.
 - **Optional caching:** exact matching by default, with explicitly configured guarded semantic reuse, model separation, expiry, and bounded in-memory storage.
 - **Repeatable experiments:** evaluate a dataset across generation models with a fixed judge; export detailed JSON and CSV metrics.
 - **Secret-safe configuration:** `.env` settings stay local; API keys and raw provider exceptions are excluded from responses and reports.
@@ -95,7 +95,9 @@ The judge returns correctness, relevance, and clarity scores, their mean (`overa
 | `GET /` | API welcome response |
 | `GET /health` | Process health and whether a nonempty API key is configured |
 | `POST /generate` | Generate or reuse an answer |
-| `POST /evaluate` | Score a supplied answer |
+| `POST /evaluate` | Score a supplied answer with the configured rubric |
+| `POST /check` | Run deterministic answer checks without provider calls |
+| `POST /evaluate/quality` | Score with the five-dimension quality rubric and answer checks |
 
 Invalid inputs return `422`, missing API configuration returns `503`, and provider failures return sanitized `502` responses. Health checks do not verify live provider access.
 
@@ -270,7 +272,7 @@ app/
 experiments/
   run_eval.py              Experiment command-line entry point
   sample_cases.json        Public sample evaluation dataset
-dashboard/                 Read-only model comparison and cache accuracy views
+dashboard/                 Comparisons, cache accuracy, and evaluation run controls
 tests/                     Offline tests with fake provider responses
 .env.example               Configuration template, without secrets
 requirements.txt           Direct Python dependencies
@@ -279,10 +281,12 @@ requirements.txt           Direct Python dependencies
 ## Tests and verification
 
 ```sh
-python -m pytest -q
+make verify
 ```
 
-The current backend has **140 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
+`make verify` checks installed dependency compatibility and runs the offline suite. GitHub Actions runs the same command on Python 3.11 for main and pull requests. It needs no repository secrets. Use `make api` and `make dashboard` in separate terminals to start the local services.
+
+The current backend has **141 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
 
 Live development checks have also verified Gemini generation and judging, a complete three-case experiment, and exact and paraphrased cache hits. These are smoke checks, not general quality benchmarks.
 
