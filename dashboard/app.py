@@ -12,14 +12,18 @@ import streamlit as st
 
 from dashboard.reports import load_reports, summarize
 from dashboard.cache_view import render_cache_view
+from dashboard.run_controls import render_run_controls
 
 
 def render_dashboard(results_dir=None):
     st.set_page_config(page_title='Evalora · Results', page_icon='📊', layout='wide')
     st.title('Evalora')
     st.caption('LLM evaluation · Compare quality, speed, and failures')
-    view = st.sidebar.radio('View', ['Model evaluations', 'Cache accuracy'])
+    view = st.sidebar.radio('View', ['Model evaluations', 'Cache accuracy', 'Run evaluation'])
     directory = Path(results_dir) if results_dir else ROOT / 'results'
+    if view == 'Run evaluation':
+        render_run_controls(directory)
+        return
     if view == 'Cache accuracy':
         render_cache_view(directory)
         return

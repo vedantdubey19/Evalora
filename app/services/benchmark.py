@@ -114,7 +114,7 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
                   provider_factory: Callable = GeminiClient, on_result: Callable | None = None,
                   request_interval: float = 0, model_intervals: dict | None = None,
                   prior_report=None, on_checkpoint: Callable | None = None,
-                  max_retries: int = 0, max_retry_delay: float = 30):
+                  max_retries: int = 0, max_retry_delay: float = 30, cancel_event=None):
     if not models or len(set(models)) != len(models) or any(not m.strip() for m in models):
         raise ValueError('Provide unique, nonempty model IDs.')
     if isinstance(max_retries, bool) or not isinstance(max_retries, int) or not 0 <= max_retries <= 3:
@@ -189,6 +189,16 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
         if on_result:
             on_result(row)
 
+    def check_cancel():
+        if cancel_event is not None and cancel_event.is_set():
+            raise KeyboardInterrupt()
+
+    def pause(seconds):
+        if cancel_event is None:
+            sleep(seconds)
+        elif cancel_event.wait(seconds):
+            raise KeyboardInterrupt()
+
     class PacedProvider:
         def __init__(self, config):
             self.settings = config
@@ -199,12 +209,14 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
         def generate(self, prompt, *, judge=False, schema=None):
             selected = self.settings.gemini_judge_model if judge else self.settings.gemini_model
             self.last_attempts, self.last_request_ms = 0, 0.0
+            check_cancel()
             if selected in blocked_models:
                 raise ProviderError(reason=blocked_models[selected])
             for attempt in range(max_retries + 1):
+                check_cancel()
                 wait = next_request.get(selected, 0) - monotonic()
                 if wait > 0:
-                    sleep(wait)
+                    pause(wait)
                 next_request[selected] = monotonic() + intervals.get(selected, request_interval)
                 started = perf_counter()
                 self.last_attempts += 1
@@ -233,15 +245,17 @@ def run_benchmark(cases: list[EvalCase], models: list[str], settings: Settings,
                 finally:
                     self.last_request_ms += round((perf_counter() - started) * 1000, 2)
                 if delay is not None:
-                    sleep(delay)
+                    pause(delay)
 
     # Durable initial state is written before a provider is constructed or called.
     checkpoint()
     try:
         for model in models:
+            check_cancel()
             config = settings.model_copy(update={'gemini_model': model, 'generation_temperature': 0})
             provider = PacedProvider(config)
             for row in [r for r in rows if r['model'] == model]:
+                check_cancel()
                 if row['reused']:
                     publish(row)
                     continue

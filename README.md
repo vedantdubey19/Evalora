@@ -236,6 +236,26 @@ Reports record their rubric version. Resumption rejects a changed rubric or chan
 
 See [Day 5 quality validation](docs/day5-quality.md). The offline examples test mechanics and format constraints; they do not establish LLM-judge reliability.
 
+## Run evaluations from the dashboard — Day 6
+
+Start the dashboard once, then select **Run evaluation** in the sidebar:
+
+```sh
+python -m streamlit run dashboard/app.py --server.address 127.0.0.1
+```
+
+Choose the sample or quality dataset, or upload UTF-8 JSON (up to 2 MB, 1–100 cases). Invalid fields are reported by row without displaying the whole uploaded record. Preview the first five questions, choose a question count, enter up to four unique generation model IDs, choose a judge and rubric, and set the retry budget and request interval.
+
+The page shows a maximum provider-stage attempt count before starting. This includes configured retries and excludes validated reused evaluations; it is not a monetary estimate. Model availability is checked only when the provider receives a request. Opening or refreshing the page does not make model calls. Press **Start evaluation (uses Gemini)** to authorize the run.
+
+One worker can run per dashboard process, shared across its tabs. Progress refreshes every two seconds while the page is active. Cancel interrupts pacing and retry waits promptly; an in-flight provider request must return or reach its configured timeout first. No further stage is started once cancellation is observed. Completed checkpoints remain downloadable, and CSV becomes available after normal completion.
+
+For **Resume saved run**, select a JSON report from the results folder. Dataset, models, judge, rubric, and pacing settings are reconstructed and validated before launch. Only fully evaluated cases are reused. A checkpoint marked running requires you to confirm that the original process has stopped; another CLI or dashboard process is not coordinated by this worker manager.
+
+A run continues if the tab closes. Restarting the dashboard process stops its daemon worker; its latest atomic checkpoint remains available for resumption. This is a single-user localhost workflow, without authentication, cross-process locking, or cloud job persistence. API keys stay in `.env` and never enter job status, downloads, or error labels.
+
+See [Day 6 workflow validation](docs/day6-dashboard-runs.md). All workflow tests used fake providers; no Gemini calls were made during development.
+
 ## Project structure
 
 ```text
@@ -262,7 +282,7 @@ requirements.txt           Direct Python dependencies
 python -m pytest -q
 ```
 
-The current backend has **122 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
+The current backend has **140 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
 
 Live development checks have also verified Gemini generation and judging, a complete three-case experiment, and exact and paraphrased cache hits. These are smoke checks, not general quality benchmarks.
 
@@ -274,7 +294,7 @@ python -m streamlit run dashboard/app.py --server.address 127.0.0.1
 
 Open [the local dashboard](http://127.0.0.1:8501). Select saved runs and models in the sidebar to compare quality, latency, generation tokens, and failures. Inspect individual questions, reference answers, generated answers, and judge reasoning. Download a comparison CSV for the current selection, and use Refresh reports after another experiment completes.
 
-The dashboard reads saved reports only: it does not read API credentials or make provider calls. Invalid reports are skipped with a warning. It handles empty results and failed evaluations, and warns when selected runs use different judges or datasets. Times in filenames and report metadata are UTC. Keep it bound to localhost because reports may contain private prompts and answers.
+The Model evaluations and Cache accuracy views read saved reports only. The Run evaluation view loads the local configuration privately and starts provider calls only after you explicitly press Start. Invalid reports are skipped with a warning. It handles empty results and failed evaluations, and warns when selected runs use different judges or datasets. Times in filenames and report metadata are UTC. Keep it bound to localhost because reports may contain private prompts and answers.
 
 ## CodeRabbit reviews
 
