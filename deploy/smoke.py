@@ -18,7 +18,8 @@ def main():
     credentials = dict(line.split(': ', 1) for line in Path('.credentials.local').read_text().splitlines())
     compose = ['docker', 'compose', '--env-file', '.env.production']
     subprocess.run(compose+['config', '--quiet'], check=True)
-    subprocess.run(compose+['up', '-d', '--build', '--wait', '--wait-timeout', '180'], check=True)
+    subprocess.run(compose+['build', 'api'], check=True)
+    subprocess.run(compose+['up', '-d', '--no-build', '--wait', '--wait-timeout', '180'], check=True)
     context = ssl._create_unverified_context()  # CI localhost CA is not installed in runner trust.
 
     def request(path, headers=None):

@@ -1,0 +1,37 @@
+{
+    email {$TLS_EMAIL}
+    admin off
+    servers {
+        timeouts {
+            read_header 10s
+            read_body 30s
+            idle 2m
+        }
+    }
+}
+{$DOMAIN} {
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+        Cache-Control no-store
+        -Server
+    }
+    request_body {
+        max_size 3MB
+    }
+    handle_path /api/* {
+        reverse_proxy api:8000
+    }
+    handle {
+        basic_auth {
+            {$DASHBOARD_USER} {$DASHBOARD_PASSWORD_HASH}
+        }
+        reverse_proxy dashboard:8501 {
+            # Overwrite any client-supplied header. The value never reaches the browser.
+            header_up X-Evalora-Gateway {$GATEWAY_SECRET}
+            header_up -Authorization
+        }
+    }
+}

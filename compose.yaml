@@ -67,7 +67,12 @@ services:
       DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:?Generate password hash}
       GATEWAY_SECRET: ${GATEWAY_SECRET:?Generate production secrets}
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - type: bind
+        source: ./deploy/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind:
+          create_host_path: false
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
