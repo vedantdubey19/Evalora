@@ -10,7 +10,7 @@ Evalora is a local Python toolkit for generating answers with Gemini, evaluating
 
 - **Gemini generation:** configurable model, request timeout, input validation, and sanitized provider errors.
 - **LLM-as-a-Judge:** correctness, relevance, and clarity scores from 1–5, with reasoning and an optional reference answer.
-- **Semantic caching:** optional reuse of similar questions using sentence embeddings and cosine similarity, with model separation, expiry, and a bounded in-memory store.
+- **Optional caching:** exact matching by default, with explicitly configured guarded semantic reuse, model separation, expiry, and bounded in-memory storage.
 - **Repeatable experiments:** evaluate a dataset across generation models with a fixed judge; export detailed JSON and CSV metrics.
 - **Secret-safe configuration:** `.env` settings stay local; API keys and raw provider exceptions are excluded from responses and reports.
 
@@ -155,19 +155,34 @@ The dashboard adds category filters and category scores under **Model evaluation
 
 Cache rates exclude embedding errors. Undefined rates are reported as missing, rather than zero. These small datasets are development checks, not a representative benchmark or a guarantee of safe reuse. Use held-out pairs before tuning thresholds. See `docs/day2-results.md` for the measured results and limitations.
 
-## Semantic cache
+## Cache safety — Day 3
 
-Set `use_cache` to `true` on `/generate` to opt in. The first successful opted-in request loads `sentence-transformers/all-MiniLM-L6-v2`, downloading public model weights if necessary.
+Caching is still disabled unless a request sets `use_cache` to `true`. When enabled, the new default is `CACHE_MATCH_MODE=exact`: only identical questions for the same model reuse an answer. API input validation strips outer whitespace; case, punctuation, and internal whitespace otherwise remain significant. Exact matching does not load or download an embedding model.
 
-| Setting | Default |
-| --- | --- |
-| Similarity threshold | `0.95` |
-| Entry lifetime | `600` seconds |
-| Maximum entries | `256` |
-| Matching | Cosine similarity on normalized embeddings |
-| Storage | Process-local memory, FIFO eviction |
+To explicitly enable conservative semantic matching, add this to your local `.env` and restart the API:
 
-Exact matches bypass embedding lookup. Semantic matches must meet the configured threshold and use the same generation model. Embedding failures fall back to normal generation with `cache_status: unavailable`. Cached responses have no new provider token usage. This small cache uses NumPy search; FAISS is not required at this scale.
+```dotenv
+CACHE_MATCH_MODE=guarded
+```
+
+Guarded matching requires both a matching ordered content signature and cosine similarity at or above `CACHE_SIMILARITY_THRESHOLD` (default 0.95). The signature retains all words, punctuation and symbols, including Unicode comparisons, currency signs, quoted text, letter case, and token order. It preserves question types and modal verbs. Its only explicit wording rewrite is lowercase “capital city” to “capital”; multiline nonexact requests are rejected to protect indentation-sensitive code. It rejects the observed negation, direction, sort-order and comparison-operator changes. Compatible candidates are filtered before nearest-neighbor selection. This is a deliberately restrictive lexical heuristic, not a semantic-equivalence proof; it misses many valid paraphrases and may still miss untested meaning differences. Use exact mode when uncertain.
+
+The API reports `cache_match_mode` alongside `cache_status`. The unguarded `cosine` matcher remains available only to the experiment runner as a baseline; application settings accept only `exact` and `guarded`.
+
+All modes retain the 600-second TTL, 256-entry FIFO capacity, model separation, and process-local storage. Restarting clears cached answers. Guarded mode lazily loads the configured sentence-transformer model and falls back to normal generation if embeddings fail. Cached responses have no new provider token usage. A matching question can still need a fresh answer when facts, context, or permissions change; keep caching off for such requests. This remains a localhost, single-user prototype.
+
+Compare policies without Gemini API calls:
+
+```sh
+python -m experiments.run_cache_eval --policies cosine guarded exact
+python -m experiments.run_cache_eval \
+  --dataset experiments/cache_challenge_pairs.json \
+  --policies cosine guarded exact
+```
+
+Each dataset has 24 labeled pairs and is evaluated at five thresholds with all three policies. The exact policy ignores thresholds; its repeated threshold rows keep the comparison table aligned. New reports include policy names and decisions such as exact hit, guard veto, and below-threshold miss. Historical cache reports without policy fields load as the original cosine baseline. The dashboard lets you select a policy and inspect mismatches, defaulting to exact when available.
+
+See [Day 3 measured results](docs/day3-results.md) for false-hit counts, missed-reuse trade-offs, reproducible commands and limitations. The challenge set is separately authored, not an independent production sample. The guard was strengthened after code-review regressions and both datasets were rerun; treat them as development sets, not blinded held-out validation. The 0.95 threshold was not retuned.
 
 ## Project structure
 
@@ -195,7 +210,7 @@ requirements.txt           Direct Python dependencies
 python -m pytest -q
 ```
 
-The current backend has **43 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
+The current backend has **71 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
 
 Live development checks have also verified Gemini generation and judging, a complete three-case experiment, and exact and paraphrased cache hits. These are smoke checks, not general quality benchmarks.
 
@@ -228,7 +243,7 @@ Similar wording can hide different meanings, especially numbers and negation. Di
 
 Token totals cover generation only, including provider-reported thinking tokens, and are not monetary cost estimates. API access and billing are separate from consumer chat subscriptions.
 
-Next milestones: held-out evaluation datasets, calibrated judging, and stronger cache reuse policies informed by the measured false hits.
+Next milestones: independently reviewed cache datasets, context-aware cache keys, calibrated judging, and completion of the separate Gemini model comparison when service access recovers.
 
 ## References
 

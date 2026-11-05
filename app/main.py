@@ -30,7 +30,7 @@ def create_app(settings=None, provider=None, cache=None):
     provider = provider or GeminiClient(settings)
     cache = cache or SemanticCache(
         SentenceEncoder(settings.embedding_model), settings.cache_similarity_threshold,
-        settings.cache_ttl_seconds, settings.cache_max_entries,
+        settings.cache_ttl_seconds, settings.cache_max_entries, match_mode=settings.cache_match_mode,
     )
     app = FastAPI(title='Evalora', version='0.1.0')
 
@@ -70,7 +70,7 @@ def create_app(settings=None, provider=None, cache=None):
                     cache_status = 'unavailable'
         return {
             'question': request.question, 'model': settings.gemini_model, 'answer': answer,
-            'cache_status': cache_status, 'similarity': hit[1] if hit else None,
+            'cache_status': cache_status, 'cache_match_mode': cache.match_mode, 'similarity': hit[1] if hit else None,
             'latency_ms': round((perf_counter() - started) * 1000, 2),
             'usage': {'input_tokens': getattr(usage, 'prompt_token_count', None),
                       'output_tokens': getattr(usage, 'candidates_token_count', None),

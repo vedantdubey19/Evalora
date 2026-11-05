@@ -28,12 +28,13 @@ def main():
     parser = argparse.ArgumentParser(description='Measure cache matching on labeled pairs without LLM API calls.')
     parser.add_argument('--dataset', type=Path, default=BASE_DIR / 'experiments/cache_pairs.json')
     parser.add_argument('--thresholds', type=float, nargs='+', default=[0.85, 0.90, 0.95, 0.98, 1.0])
+    parser.add_argument('--policies', nargs='+', choices=['cosine', 'guarded', 'exact'], default=['cosine', 'guarded', 'exact'])
     parser.add_argument('--output-dir', type=Path, default=BASE_DIR / 'results')
     args = parser.parse_args()
     try:
         pairs = validate_pairs(json.loads(args.dataset.read_text(encoding='utf-8')))
         settings = Settings()
-        report = run_cache_benchmark(pairs, SentenceEncoder(settings.embedding_model), settings.embedding_model, args.thresholds)
+        report = run_cache_benchmark(pairs, SentenceEncoder(settings.embedding_model), settings.embedding_model, args.thresholds, policies=args.policies)
     except (OSError, ValueError):
         parser.exit(2, 'Invalid pair dataset or threshold settings.\n')
     paths = save_cache_report(report, args.output_dir)

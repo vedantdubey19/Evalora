@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,6 +14,7 @@ class Settings(BaseSettings):
     gemini_judge_model: str = 'gemini-2.5-flash'
     generation_temperature: float = Field(default=0.7, ge=0, le=2)
     provider_timeout_ms: int = Field(default=60000, ge=1000, le=300000)
+    cache_match_mode: Literal['exact', 'guarded'] = 'exact'
     cache_similarity_threshold: float = Field(default=0.95, ge=0, le=1)
     cache_ttl_seconds: int = Field(default=600, ge=1)
     cache_max_entries: int = Field(default=256, ge=1, le=10000)

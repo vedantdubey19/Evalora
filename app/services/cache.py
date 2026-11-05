@@ -5,6 +5,8 @@ from time import monotonic
 
 import numpy as np
 
+from app.services.cache_policy import allows_semantic_reuse
+
 
 class SentenceEncoder:
     def __init__(self, model_name):
@@ -23,12 +25,15 @@ class Entry:
     question: str
     model: str
     answer: str
-    vector: np.ndarray
+    vector: np.ndarray | None
     created: float
 
 
 class SemanticCache:
-    def __init__(self, encoder, threshold=0.95, ttl=600, capacity=256, clock=monotonic):
+    def __init__(self, encoder, threshold=0.95, ttl=600, capacity=256, clock=monotonic, match_mode='exact'):
+        if match_mode not in {'exact', 'guarded', 'cosine'}:
+            raise ValueError('Unknown cache match mode')
+        self.match_mode = match_mode
         self.encoder, self.threshold, self.ttl = encoder, threshold, ttl
         self.capacity, self.clock = capacity, clock
         self.entries = []
@@ -51,6 +56,10 @@ class SemanticCache:
             for entry in reversed(candidates):
                 if entry.question == question:
                     return entry.answer, 1.0
+            if self.match_mode == 'exact':
+                return None
+            if self.match_mode == 'guarded':
+                candidates = [e for e in candidates if allows_semantic_reuse(e.question, question)]
             if not candidates:
                 return None
             vector = self._vector(question)
@@ -60,7 +69,7 @@ class SemanticCache:
 
     def put(self, question, model, answer):
         with self.lock:
-            vector = self._vector(question)
+            vector = None if self.match_mode == 'exact' else self._vector(question)
             self._prune()
             self.entries = [e for e in self.entries if (e.question, e.model) != (question, model)]
             self.entries.append(Entry(question, model, answer, vector, self.clock()))

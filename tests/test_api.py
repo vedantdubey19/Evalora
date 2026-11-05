@@ -39,13 +39,13 @@ def test_validation_and_missing_key():
 
 def test_cache_hit_and_bypass():
     provider = FakeProvider()
-    cache = SemanticCache(lambda _: [1, 0])
+    cache = SemanticCache(lambda _: [1, 0], match_mode='guarded')
     client = TestClient(create_app(settings(), provider, cache))
-    payload = {'question': 'Question?', 'use_cache': True}
+    payload = {'question': 'What is the capital of France?', 'use_cache': True}
     first = client.post('/generate', json=payload).json()
     assert first['cache_status'] == 'miss'
     assert first['usage']['total_tokens'] == 10
-    second = client.post('/generate', json={'question': 'Similar question?', 'use_cache': True}).json()
+    second = client.post('/generate', json={'question': 'What is the capital city of France?', 'use_cache': True}).json()
     assert second['cache_status'] == 'hit'
     assert second['usage'] is None
     assert provider.calls == 1
@@ -67,7 +67,7 @@ def test_errors_not_cached_or_leaked():
 def test_cache_failure_falls_back():
     def broken(_):
         raise RuntimeError('embedding unavailable')
-    client = TestClient(create_app(settings(), FakeProvider(), SemanticCache(broken)))
+    client = TestClient(create_app(settings(), FakeProvider(), SemanticCache(broken, match_mode='guarded')))
     result = client.post('/generate', json={'question': 'Q', 'use_cache': True})
     assert result.status_code == 200
     assert result.json()['cache_status'] == 'unavailable'
