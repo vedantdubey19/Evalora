@@ -1,6 +1,7 @@
 """Extract safe failure categories; never retain provider messages or payloads."""
 import math
 import re
+import ssl
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -61,8 +62,8 @@ def classify_failure(error, *, now=None):
         return 'provider_unavailable', retry_after
     if code in (500, 502, 504):
         return 'server_error', retry_after
-    if code == 408 or isinstance(error, httpx.TimeoutException):
+    if code == 408 or isinstance(error, (httpx.TimeoutException, TimeoutError)):
         return 'timeout', retry_after
-    if isinstance(error, httpx.TransportError):
+    if isinstance(error, (httpx.TransportError, ConnectionError, ssl.SSLError)):
         return 'network_error', retry_after
     return 'provider_error', None

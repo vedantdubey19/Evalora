@@ -17,7 +17,7 @@ reviews:
       instructions: >-
         Prioritize correctness, secret handling, sanitized provider errors, input
         validation, judge-output validation, cache model separation, TTL and
-        concurrency. This is a single-user localhost prototype. Do not request
+        concurrency. This supports a private owner deployment behind an authenticated HTTPS gateway. Review fail-closed production settings, shared quotas and persistent report isolation. Do not request
         additional logging of prompts, API keys, or raw provider exceptions.
     - path: 'experiments/**'
       instructions: >-

@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description='Generate and judge dataset cases with checkpoints. Retries may add provider calls.')
     parser.add_argument('--dataset', type=Path, default=BASE_DIR / 'experiments/sample_cases.json')
     parser.add_argument('--models', nargs='+', help='Generation model IDs; defaults to GEMINI_MODEL.')
-    parser.add_argument('--output-dir', type=Path, default=BASE_DIR / 'results')
+    parser.add_argument('--output-dir', type=Path, default=None)
     parser.add_argument('--limit', type=int, help='Run only the first N cases.')
     parser.add_argument('--resume', type=Path, help='Reuse successful rows from a matching earlier report; retry failures only.')
     parser.add_argument('--rubric', choices=['legacy-v1', 'quality-v2'], help='Scoring rubric; defaults to EVALUATION_RUBRIC (legacy-v1 for compatibility).')
@@ -51,6 +51,7 @@ def main():
             parser.error('--limit must be at least 1')
         cases = cases[:args.limit]
     settings = Settings()
+    args.output_dir = args.output_dir or settings.reports_dir
     if args.rubric:
         settings = settings.model_copy(update={'evaluation_rubric': args.rubric})
     if settings.evaluation_rubric == 'legacy-v1' and any(c.checks.model_dump(exclude_defaults=True) for c in cases):

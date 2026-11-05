@@ -1,7 +1,11 @@
+from contextlib import nullcontext
+import sqlite3
+
 from google import genai
 from google.genai import types
 
 from app.core.config import Settings
+from app.services.limits import LimitExceeded, LimitStore
 from app.services.provider_failures import classify_failure
 from app.services.rubrics import QualityScores, judge_instructions
 
@@ -15,6 +19,12 @@ class ProviderError(Exception):
         super().__init__(message)
         self.reason = reason
         self.retry_after = retry_after
+
+
+class LocalLimitError(ProviderError):
+    def __init__(self, *, reason, retry_after):
+        ProviderError.__init__(self, 'Application provider-call limit reached.', reason=reason)
+        self.limit_retry_after = retry_after
 
 
 class GeminiClient:
@@ -34,7 +44,16 @@ class GeminiClient:
             system_instruction=judge_instructions(schema is QualityScores) if judge else None,
         )
         try:
-            with genai.Client(api_key=key, http_options=types.HttpOptions(
+            admission = nullcontext()
+            if self.settings.deployment_mode == 'production':
+                try:
+                    store = LimitStore(self.settings.state_dir)
+                except OSError:
+                    raise ProviderError(reason='provider_unavailable') from None
+                admission = store.provider_slot(
+                    self.settings.provider_calls_per_day, self.settings.provider_max_concurrent,
+                    self.settings.provider_timeout_ms / 1000)
+            with admission, genai.Client(api_key=key, http_options=types.HttpOptions(
                 timeout=self.settings.provider_timeout_ms,
                 retry_options=types.HttpRetryOptions(attempts=1),
             )) as client:
@@ -45,6 +64,11 @@ class GeminiClient:
             if not response.text or not response.text.strip():
                 raise ProviderError()
             return response.text, response.usage_metadata
+        except LimitExceeded as error:
+            # RetryInfo is deliberately absent: benchmarks stop rather than waiting out local limits.
+            raise LocalLimitError(reason=error.reason, retry_after=error.retry_after) from None
+        except sqlite3.Error:
+            raise ProviderError(reason='provider_unavailable') from None
         except ProviderError:
             raise
         except Exception as error:

@@ -98,6 +98,8 @@ The judge returns correctness, relevance, and clarity scores, their mean (`overa
 | `POST /evaluate` | Score a supplied answer with the configured rubric |
 | `POST /check` | Run deterministic answer checks without provider calls |
 | `POST /evaluate/quality` | Score with the five-dimension quality rubric and answer checks |
+| `GET /reports` | List saved owner reports |
+| `GET /reports/{name}` | Download an owner report |
 
 Invalid inputs return `422`, missing API configuration returns `503`, and provider failures return sanitized `502` responses. Health checks do not verify live provider access.
 
@@ -286,7 +288,7 @@ make verify
 
 `make verify` checks installed dependency compatibility and runs the offline suite. GitHub Actions runs the same command on Python 3.11 for main and pull requests. It needs no repository secrets. Use `make api` and `make dashboard` in separate terminals to start the local services.
 
-The current backend has **141 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
+The current backend has **159 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
 
 Live development checks have also verified Gemini generation and judging, a complete three-case experiment, and exact and paraphrased cache hits. These are smoke checks, not general quality benchmarks.
 
@@ -311,9 +313,13 @@ coderabbit auth login --agent
 coderabbit review --agent -t uncommitted -c .coderabbit.yaml
 ```
 
+## Private hosting
+
+A private owner deployment is included: authenticated dashboard, bearer-protected API, shared request limits and provider-call budget, persistent report volume, backups, and HTTPS gateway. Follow [the hosting guide](docs/hosting.md). Deployment secrets are generated locally and excluded from Git and images. This is one shared owner workspace, with no public signup or tenant isolation.
+
 ## Limitations and next steps
 
-This is a single-user local prototype. Keep the API bound to localhost; authentication, tenant isolation, and request rate limits are required before shared deployment. Multiple workers maintain independent caches, and restarting clears cached answers.
+Local mode is intended for localhost and has no login by default. Hosted mode requires the production settings and authenticated gateway described in the hosting guide. Separate deployments are required for separate users who must not share reports or quotas. Multiple API workers maintain independent caches, and restarting clears cached answers.
 
 Similar wording can hide different meanings, especially numbers and negation. Disable caching for sensitive, dynamic, or precision-critical questions. Judge scores are model opinions; calibrate with trusted references and human review. Using the same model as generator and judge can introduce bias. The included dataset is too small to rank models reliably.
 

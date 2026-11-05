@@ -1,0 +1,14 @@
+*
+!requirements.txt
+!app/
+!app/**
+!dashboard/
+!dashboard/**
+!experiments/
+!experiments/**
+!deploy/
+!deploy/**
+**/.env*
+**/*credentials*
+**/__pycache__
+**/*.pyc

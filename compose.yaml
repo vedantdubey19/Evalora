@@ -1,0 +1,85 @@
+x-app: &app
+  image: evalora:local
+  build: .
+  restart: unless-stopped
+  user: '10001:10001'
+  read_only: true
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  mem_limit: 2g
+  cpus: 2
+  volumes:
+    - evalora_data:/var/lib/evalora
+  environment: &environment
+    DEPLOYMENT_MODE: production
+    GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in .env.production}
+    GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+    GEMINI_JUDGE_MODEL: ${GEMINI_JUDGE_MODEL:-gemini-2.5-flash}
+    API_ACCESS_TOKEN: ${API_ACCESS_TOKEN:?Generate production secrets}
+    GATEWAY_SECRET: ${GATEWAY_SECRET:?Generate production secrets}
+    ALLOWED_HOSTS: '["${DOMAIN:?Set DOMAIN}","localhost","127.0.0.1"]'
+    REPORTS_DIR: /var/lib/evalora/reports
+    STATE_DIR: /var/lib/evalora/state
+    CACHE_MATCH_MODE: exact
+    EVALUATION_RUBRIC: quality-v2
+    API_REQUESTS_PER_MINUTE: ${API_REQUESTS_PER_MINUTE:-30}
+    PROVIDER_CALLS_PER_DAY: ${PROVIDER_CALLS_PER_DAY:-200}
+    PROVIDER_MAX_CONCURRENT: ${PROVIDER_MAX_CONCURRENT:-2}
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+services:
+  api:
+    <<: *app
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+  dashboard:
+    <<: *app
+    command: [python, -m, streamlit, run, dashboard/app.py, --server.address=0.0.0.0, --server.port=8501, --server.headless=true, --server.enableCORS=true, --server.enableXsrfProtection=true, --server.maxUploadSize=2, --server.maxMessageSize=5, --browser.gatherUsageStats=false]
+    environment:
+      <<: *environment
+      STREAMLIT_SERVER_COOKIE_SECRET: ${COOKIE_SECRET:?Generate production secrets}
+      STREAMLIT_BROWSER_SERVER_ADDRESS: ${DOMAIN}
+      STREAMLIT_BROWSER_SERVER_PORT: '443'
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+  gateway:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+      TLS_EMAIL: ${TLS_EMAIL:?Set TLS_EMAIL}
+      DASHBOARD_USER: ${DASHBOARD_USER:-admin}
+      DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:?Generate password hash}
+      GATEWAY_SECRET: ${GATEWAY_SECRET:?Generate production secrets}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api: {condition: service_healthy}
+      dashboard: {condition: service_healthy}
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+volumes:
+  evalora_data:
+  caddy_data:
+  caddy_config:

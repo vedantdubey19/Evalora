@@ -37,7 +37,7 @@ GitHub Actions installs the declared requirements on Python 3.11 and runs the sa
 
 The separate Day 2 live comparison remains incomplete because of provider quota, model availability, and service failures. It has deliberately been left aside. Prior live smoke checks do not establish a complete model ranking or calibration of the newer quality rubric. See the milestone documents for measured results and limitations.
 
-This release targets localhost and one user. Shared hosting requires a separate deployment scope including authentication, access controls, quotas and persistent storage. Caches are process-local and reset on restart; a dashboard server restart stops background work, while saved checkpoints remain resumable. Judge ratings require human calibration before consequential use. Reports can contain prompts and answers, so review them before sharing.
+The original local release has been extended with a private owner hosting configuration: authentication, shared quotas, a persistent volume, and HTTPS. See [hosting](hosting.md) for deployment and operational requirements. It is one owner workspace, without public signup or tenant isolation. Caches are process-local and reset on restart; a dashboard server restart stops background work, while saved checkpoints remain resumable. Judge ratings require human calibration before consequential use. Reports can contain prompts and answers, so review them before sharing.
 
 ## Troubleshooting
 

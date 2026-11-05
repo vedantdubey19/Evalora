@@ -10,6 +10,8 @@ if str(ROOT) not in sys.path:
 import pandas as pd
 import streamlit as st
 
+from app.core.config import Settings
+from dashboard.security import require_gateway
 from dashboard.reports import load_reports, summarize
 from dashboard.cache_view import render_cache_view
 from dashboard.run_controls import render_run_controls
@@ -17,10 +19,16 @@ from dashboard.run_controls import render_run_controls
 
 def render_dashboard(results_dir=None):
     st.set_page_config(page_title='Evalora · Results', page_icon='📊', layout='wide')
+    try:
+        settings = Settings()
+    except ValueError:
+        st.error('Server configuration is invalid.')
+        st.stop()
+    require_gateway(settings)
     st.title('Evalora')
     st.caption('LLM evaluation · Compare quality, speed, and failures')
     view = st.sidebar.radio('View', ['Model evaluations', 'Cache accuracy', 'Run evaluation'])
-    directory = Path(results_dir) if results_dir else ROOT / 'results'
+    directory = Path(results_dir) if results_dir else settings.reports_dir
     if view == 'Run evaluation':
         render_run_controls(directory)
         return
@@ -29,7 +37,7 @@ def render_dashboard(results_dir=None):
         return
     st.sidebar.header('Saved evaluations')
     st.sidebar.button('Refresh reports')
-    frame, skipped = load_reports(Path(results_dir) if results_dir else ROOT / 'results')
+    frame, skipped = load_reports(Path(results_dir) if results_dir else settings.reports_dir)
     if skipped:
         st.warning(f'Skipped {len(skipped)} unreadable or invalid report(s): ' + ', '.join(skipped))
     if frame.empty:

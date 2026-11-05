@@ -1,4 +1,5 @@
 """One background evaluation per dashboard process; no Streamlit calls in workers."""
+import sqlite3
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +10,7 @@ from app.services.benchmark import run_benchmark
 from app.services.llm_client import GeminiClient
 from app.services.report_store import ReportWriter
 from app.services.run_inputs import validate_run
+from app.services.limits import LimitExceeded, LimitStore
 
 
 @dataclass
@@ -37,6 +39,13 @@ class RunManager:
             if self.active is not None:
                 raise ValueError('An evaluation is already active. Cancel it or wait for it to finish.')
             configured, budget, reused = validate_run(cases, options, settings, prior)
+            if settings.deployment_mode == 'production':
+                try:
+                    LimitStore(settings.state_dir).consume('dashboard-start', 2)
+                except LimitExceeded:
+                    raise ValueError('Run start limit reached. Wait a minute before starting another run.') from None
+                except (OSError, sqlite3.Error):
+                    raise ValueError('Run limits are temporarily unavailable.') from None
             writer = ReportWriter(self.directory)
             job = Job(uuid4().hex, json_path=writer.json_path, csv_path=writer.csv_path)
             # Completed job history is bounded; reports remain available on disk.

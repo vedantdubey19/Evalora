@@ -1,6 +1,9 @@
 from time import perf_counter
 
 from fastapi import FastAPI, HTTPException
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from app.security.http import AdmissionMiddleware
+from app.services.limits import LimitExceeded
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from typing import Annotated
 
@@ -8,7 +11,7 @@ from app.core.config import Settings
 from app.services.cache import SemanticCache, SentenceEncoder
 from app.services.evaluation import evaluate
 from app.services.answer_checks import AnswerChecks, check_answer
-from app.services.llm_client import ConfigurationError, GeminiClient, ProviderError
+from app.services.llm_client import ConfigurationError, GeminiClient, ProviderError, LocalLimitError
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20000)]
 
@@ -44,7 +47,21 @@ def create_app(settings=None, provider=None, cache=None):
         SentenceEncoder(settings.embedding_model), settings.cache_similarity_threshold,
         settings.cache_ttl_seconds, settings.cache_max_entries, match_mode=settings.cache_match_mode,
     )
-    app = FastAPI(title='Evalora', version='0.1.0')
+    production = settings.deployment_mode == 'production'
+    app = FastAPI(title='Evalora', version='0.2.0',
+                  docs_url=None if production else '/docs',
+                  redoc_url=None if production else '/redoc',
+                  openapi_url=None if production else '/openapi.json')
+    app.add_middleware(AdmissionMiddleware, settings=settings)
+    if production:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
+
+    @app.exception_handler(LimitExceeded)
+    async def limit_exceeded(request, error):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({'detail': str(error)}, status_code=429,
+                            headers={'Retry-After': str(error.retry_after)})
+
 
     @app.get('/')
     def home():
@@ -52,7 +69,7 @@ def create_app(settings=None, provider=None, cache=None):
 
     @app.get('/health')
     def health():
-        return {'status': 'ok', 'gemini_configured': settings.has_api_key}
+        return {'status': 'ok'} if production else {'status': 'ok', 'gemini_configured': settings.has_api_key}
 
     @app.post('/generate')
     def generate(request: QuestionRequest):
@@ -71,6 +88,8 @@ def create_app(settings=None, provider=None, cache=None):
         else:
             try:
                 answer, usage = provider.generate(request.question)
+            except LocalLimitError as error:
+                raise HTTPException(429, str(error), headers={'Retry-After': str(error.limit_retry_after)}) from None
             except ConfigurationError:
                 raise HTTPException(503, 'Set GEMINI_API_KEY in the project .env file.') from None
             except ProviderError:
@@ -93,6 +112,8 @@ def create_app(settings=None, provider=None, cache=None):
     def judge(request: EvaluationRequest):
         try:
             return evaluate(provider, request.question, request.answer, request.reference)
+        except LocalLimitError as error:
+            raise HTTPException(429, str(error), headers={'Retry-After': str(error.limit_retry_after)}) from None
         except ConfigurationError:
             raise HTTPException(503, 'Set GEMINI_API_KEY in the project .env file.') from None
         except ProviderError:
@@ -107,10 +128,29 @@ def create_app(settings=None, provider=None, cache=None):
         try:
             return evaluate(provider, request.question, request.answer, request.reference,
                             rubric='quality-v2', checks=request.checks)
+        except LocalLimitError as error:
+            raise HTTPException(429, str(error), headers={'Retry-After': str(error.limit_retry_after)}) from None
         except ConfigurationError:
             raise HTTPException(503, 'Set GEMINI_API_KEY in the project .env file.') from None
         except ProviderError:
             raise HTTPException(502, 'Gemini evaluation failed.') from None
+
+    from app.services.report_repository import ReportRepository
+    repository = ReportRepository(settings.reports_dir)
+
+    @app.get('/reports')
+    def reports():
+        return {'reports': repository.list_reports()}
+
+    @app.get('/reports/{name}')
+    def download_report(name: str):
+        from fastapi.responses import Response
+        try:
+            data, media_type = repository.read(name)
+        except (OSError, ValueError):
+            raise HTTPException(404, 'Report not found.') from None
+        return Response(data, media_type=media_type,
+                        headers={'Content-Disposition': f'attachment; filename="{name}"'})
 
     return app
 
