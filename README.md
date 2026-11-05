@@ -105,7 +105,7 @@ Invalid inputs return `422`, missing API configuration returns `503`, and provid
 python -m experiments.run_eval
 ```
 
-The included three-case dataset makes up to six provider calls: one generation and one judging call per case. For a smaller smoke test:
+The included three-case dataset has six provider stages: one generation and one judging stage per case. Bounded retries can add calls; pass `--max-retries 0` to disable them. For a smaller smoke test:
 
 ```sh
 python -m experiments.run_eval --limit 1
@@ -147,7 +147,7 @@ python -m experiments.run_cache_eval
 
 If a run ends with provider failures, use the same command with `--resume results/EXACT_REPORT_FILENAME.json` after quota becomes available. Only successful, validated rows from the same dataset fingerprint, judge, and temperature are reused; failures are retried. The new report records reuse counts and the earlier report time. Resuming combines observations from different times and is not a fresh independent run.
 
-The model comparison can make up to 96 small provider calls. Listed models may still be unavailable for generation; verify access before starting a large run. Request intervals are configurable examples, not guaranteed account quota limits. A 429 (quota), 404 (model unavailable), or 503 (provider unavailable) stops further calls to the affected model for that run. If the judge is affected, remaining cases are recorded as failures without additional generation calls. Resume later to retry failed rows when access is restored. Provider errors use safe reason labels; raw exceptions are never saved.
+The 24-case, two-model comparison has 96 provider stages. With the default two additional retries per stage, its theoretical maximum is 288 provider invocations; quota and outage safeguards often stop it earlier. Listed models may still be unavailable for generation; verify access before starting a large run. Request intervals are configurable examples, not guaranteed account quota limits. Known daily quotas and unavailable models are not retried. Temporary server, network and timeout failures can use the bounded retry budget; exhausted failures stop further calls to that model. Unknown 429 limits stop immediately unless the server supplies a short retry delay. If the judge is blocked, remaining cases are skipped without generation calls. Resume later when access recovers. Provider errors use safe reason labels; raw exceptions are never saved.
 
 Benchmark generation and judging use temperature zero. Reports record the dataset SHA-256, judge model, request intervals, and generation temperature. Zero temperature reduces variation but does not guarantee deterministic output. Generation latency excludes request pacing and judging; generation token totals exclude judge usage and are not cost estimates. Earlier Day 1 reports did not record temperature or dataset hashes and should not be treated as identical experiments.
 
@@ -184,6 +184,28 @@ Each dataset has 24 labeled pairs and is evaluated at five thresholds with all t
 
 See [Day 3 measured results](docs/day3-results.md) for false-hit counts, missed-reuse trade-offs, reproducible commands and limitations. The challenge set is separately authored, not an independent production sample. The guard was strengthened after code-review regressions and both datasets were rerun; treat them as development sets, not blinded held-out validation. The 0.95 threshold was not retuned.
 
+## Reliable evaluation runs — Day 4
+
+Each CLI run writes one uniquely named `eval-*.json` checkpoint under `results/` before provider construction, after every processed case, and when the run finishes or is cancelled. JSON is written to a temporary file, flushed, and atomically replaced. Readers see the previous valid snapshot or the new one. A checkpoint write failure stops further calls; an older saved snapshot remains available. CSV is exported on normal completion.
+
+```sh
+python -m experiments.run_eval --max-retries 2 --max-retry-delay 30
+# After cancellation or provider recovery, rerun the same dataset/models/judge with:
+python -m experiments.run_eval --resume results/EXACT_CHECKPOINT_FILENAME.json
+```
+
+Keep the dataset and judge settings identical when resuming. The saved JSON remains resumable even with `pending`, `skipped`, or `interrupted` rows; only validated fully evaluated cases are reused. A partially generated but unevaluated case is saved for inspection and will be generated again on resume. Resume creates a new report and preserves the original.
+
+Retry behavior applies to the experiment runner, not the `/generate` endpoint. Default: two additional attempts per generation or judge stage, with exponential backoff and jitter. `--max-retries` accepts 0–3; `--max-retry-delay` accepts 0–60 seconds. Server retry delays are honored when within this cap; longer waits stop that model instead of retrying early. Google daily quota metadata is recognized explicitly and never retried in the run. Generic or ambiguous 429 errors are not assumed transient. Retry delays and request pacing are excluded from provider latency, while time spent in failed provider attempts is included.
+
+New reports distinguish `ok`, `pending`, `skipped`, attempted stage failures, and `interrupted`. They record stage invocation counts and retries for the current run. Reused samples have zero new attempts; their answer latency and generation token observations remain historical values. These counters are not billing totals, and generation token metrics exclude judge usage and may include reused answers.
+
+The dashboard shows processed progress, run state, pending/skipped/reused counts, and safe provider-failure reasons. A run marked `finished` means processing ended; it does not mean every case passed. A running checkpoint can also belong to a process that stopped unexpectedly. Historical reports retain their original accounting and may combine skips with errors; missing attempt counts remain unknown.
+
+Atomic checkpoints protect completed writes from ordinary process interruption; they do not make a provider request transactional or guarantee recovery from storage hardware failure. Cancelling during a request may still incur provider usage, and an uncheckpointed in-flight case may need to run again.
+
+See [Day 4 validation](docs/day4-reliability.md) for the failure scenarios tested without Gemini API calls.
+
 ## Project structure
 
 ```text
@@ -210,7 +232,7 @@ requirements.txt           Direct Python dependencies
 python -m pytest -q
 ```
 
-The current backend has **71 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
+The current backend has **96 passing offline tests**. Tests cover input validation, SDK parameters, error sanitization, structured judging, cache bypass and matching, expiry, model separation, embedding failure fallback, and experiment reporting. They require no API key, model download, or paid calls.
 
 Live development checks have also verified Gemini generation and judging, a complete three-case experiment, and exact and paraphrased cache hits. These are smoke checks, not general quality benchmarks.
 
@@ -243,7 +265,7 @@ Similar wording can hide different meanings, especially numbers and negation. Di
 
 Token totals cover generation only, including provider-reported thinking tokens, and are not monetary cost estimates. API access and billing are separate from consumer chat subscriptions.
 
-Next milestones: independently reviewed cache datasets, context-aware cache keys, calibrated judging, and completion of the separate Gemini model comparison when service access recovers.
+Next milestones: independently reviewed datasets, context-aware cache keys, calibrated judging, and completion of the separate Gemini model comparison when service access recovers.
 
 ## References
 

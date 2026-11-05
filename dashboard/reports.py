@@ -27,7 +27,11 @@ class Result(BaseModel):
     question: str
     reference: str
     error_reason: str | None = None
-    status: Literal['ok', 'generation_error', 'configuration_error', 'evaluation_error']
+    status: Literal['ok', 'generation_error', 'configuration_error', 'evaluation_error', 'pending', 'skipped', 'interrupted']
+    reused: bool = False
+    generation_attempts: int | None = Field(default=None, ge=0)
+    evaluation_attempts: int | None = Field(default=None, ge=0)
+    retries: int | None = Field(default=None, ge=0)
     answer: str | None = None
     generation_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     evaluation_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
@@ -36,6 +40,8 @@ class Result(BaseModel):
 
 
 class Report(BaseModel):
+    run_state: Literal['running', 'finished', 'interrupted'] = 'finished'
+    accounting_version: str = 'legacy'
     created_at: str
     judge_model: str
     results: list[Result] = Field(min_length=1)
@@ -53,7 +59,8 @@ def load_reports(directory: Path):
                     raise ValueError('Incomplete successful result')
             for row in report.results:
                 item = row.model_dump(exclude={'usage', 'evaluation'})
-                item.update(run=path.stem, created_at=report.created_at,
+                item.update(run=path.stem, created_at=report.created_at, run_state=report.run_state,
+                            accounting_version=report.accounting_version,
                             total_tokens=row.usage.total_tokens if row.usage else None,
                             correctness=None, relevance=None, clarity=None, overall=None, reasoning=None)
                 if row.evaluation is not None and row.status == 'ok':
@@ -70,8 +77,13 @@ def summarize(frame):
         success = group[group.status == 'ok']
         rows.append({'Run': run, 'Model': model, 'Judge': judge,
                      'Cases': len(group), 'Evaluated': len(success),
-                     'Failures': int((group.status != 'ok').sum()),
+                     'Failures': int(group.status.isin(['generation_error', 'evaluation_error', 'configuration_error', 'interrupted']).sum()),
+                     'Skipped': int((group.status == 'skipped').sum()),
+                     'Pending': int((group.status == 'pending').sum()),
+                     'Reused': int(group.reused.sum()),
+                     'Provider attempts': (group.generation_attempts + group.evaluation_attempts).sum(min_count=1),
+                     'Retries': group.retries.sum(min_count=1),
                      'Mean score': success.overall.mean() if len(success) else None,
-                     'Generation ms': group.generation_ms.mean(),
+                     'Generation ms': pd.to_numeric(group.generation_ms, errors='coerce').mean(),
                      'Generation tokens': group.total_tokens.sum(min_count=1)})
     return pd.DataFrame(rows)

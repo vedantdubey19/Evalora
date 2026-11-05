@@ -63,12 +63,21 @@ def render_dashboard(results_dir=None):
     metrics[1].metric('Mean judge score', f'{success.overall.mean():.2f} / 5' if len(success) else '—')
     latency = pd.to_numeric(filtered.generation_ms, errors='coerce').mean()
     metrics[2].metric('Mean generation time', f'{latency / 1000:.2f} s' if pd.notna(latency) else '—')
-    metrics[3].metric('Failed cases', int((filtered.status != 'ok').sum()))
+    failure_states = ['generation_error', 'evaluation_error', 'configuration_error', 'interrupted']
+    metrics[3].metric('Failures / legacy errors' if (filtered.accounting_version == 'legacy').any() else 'Failed attempts',
+                      int(filtered.status.isin(failure_states).sum()))
+    processed = int((filtered.status != 'pending').sum())
+    st.progress(processed / len(filtered), text=f'Processed {processed} of {len(filtered)} cases')
+    st.caption(f'Skipped: {int((filtered.status == "skipped").sum())} · Pending: {int((filtered.status == "pending").sum())} · Reused: {int(filtered.reused.sum())}')
+    if (filtered.accounting_version == 'legacy').any():
+        st.info('Historical reports may combine skipped cases with failures; their provider-attempt counts are unknown.')
+    states = ', '.join(sorted(filtered.run_state.unique()))
+    st.caption(f'Run state: {states}. A running checkpoint can be refreshed to see saved progress; it may also belong to a process that stopped unexpectedly.')
 
     st.subheader('Run comparison')
     summary = summarize(filtered)
     st.dataframe(summary, hide_index=True, width='stretch')
-    st.caption('Token totals cover generation only, including provider-reported thinking tokens. Latency excludes judging. Failed evaluations are excluded from mean scores.')
+    st.caption('Generation token totals describe saved answers, including reused answers; judge usage is excluded. Provider-attempt and retry counts cover this run only and are not billing totals. Latency includes provider attempts but excludes pacing and retry waits. Failed or skipped evaluations are excluded from mean scores.')
     if len(summary):
         chart = summary.copy()
         chart['Run / model'] = chart['Run'] + ' · ' + chart['Model']
@@ -88,6 +97,13 @@ def render_dashboard(results_dir=None):
                 st.bar_chart(times.set_index('Run / model')[['Seconds']], color='#0d9488')
             else:
                 st.info('No completed generations to chart.')
+    stopped = filtered[filtered.status.isin(['generation_error', 'evaluation_error', 'configuration_error', 'interrupted', 'skipped'])]
+    if len(stopped):
+        st.subheader('Why cases stopped')
+        reasons = stopped.groupby(['model', 'status', 'error_reason'], dropna=False).size().reset_index(name='Cases')
+        reasons = reasons.rename(columns={'model': 'Model', 'status': 'Outcome', 'error_reason': 'Reason'})
+        st.dataframe(reasons, hide_index=True, width='stretch')
+        st.caption('Skipped cases did not make a new provider call. Failure reasons are safe labels; provider messages and URLs are not stored.')
     st.download_button('Download comparison CSV', summary.to_csv(index=False),
                        file_name='evalora-comparison.csv', mime='text/csv')
 
@@ -115,6 +131,13 @@ def render_dashboard(results_dir=None):
         'provider_unavailable': 'The provider was temporarily unavailable.',
         'judge_provider_unavailable': 'The judge was unavailable; further generation was skipped.',
         'judge_model_unavailable': 'The configured judge model was unavailable.',
+        'daily_quota': 'The daily quota was reached. This run will not retry it.',
+        'judge_daily_quota': 'The judge daily quota was reached; further generation was skipped.',
+        'timeout': 'The provider request timed out after bounded retry attempts.',
+        'network_error': 'The provider could not be reached after bounded retry attempts.',
+        'server_error': 'The provider returned server errors after bounded retries.',
+        'interrupted': 'This case was interrupted; completed earlier cases remain saved.',
+        'configuration_error': 'Provider configuration is missing or invalid.',
     }
     if row.error_reason in error_labels:
         st.warning(error_labels[row.error_reason])

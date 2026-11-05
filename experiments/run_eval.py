@@ -1,50 +1,36 @@
 """Run from the project root: python -m experiments.run_eval --help."""
 import argparse
-import csv
 import json
 import math
-from datetime import datetime, timezone
 from pathlib import Path
 
 from app.core.config import BASE_DIR, Settings
 from app.services.benchmark import run_benchmark, validate_cases
+from app.services.report_store import ReportWriter
 
 
 def save_report(report, output_dir):
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stem = datetime.now(timezone.utc).strftime('eval-%Y%m%dT%H%M%S-%fZ')
-    json_path = output_dir / f'{stem}.json'
-    csv_path = output_dir / f'{stem}.csv'
-    # Exclusive creation avoids overwriting an existing experiment.
-    with json_path.open('x', encoding='utf-8') as handle:
-        json.dump(report, handle, indent=2, ensure_ascii=False)
-        handle.write('\n')
-    with csv_path.open('x', newline='', encoding='utf-8') as handle:
-        fields = ['case_id', 'category', 'model', 'judge_model', 'status', 'error_reason', 'generation_ms',
-                  'evaluation_ms', 'total_tokens', 'correctness', 'relevance', 'clarity', 'overall']
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        for row in report['results']:
-            flat = {key: row.get(key) for key in fields}
-            flat['total_tokens'] = (row['usage'] or {}).get('total_tokens')
-            for key in ['correctness', 'relevance', 'clarity', 'overall']:
-                flat[key] = (row['evaluation'] or {}).get(key)
-            writer.writerow(flat)
-    return json_path, csv_path
+    return ReportWriter(output_dir).finish(report)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate and judge each dataset case. Makes up to two Gemini calls per case per model.')
+    parser = argparse.ArgumentParser(description='Generate and judge dataset cases with checkpoints. Retries may add provider calls.')
     parser.add_argument('--dataset', type=Path, default=BASE_DIR / 'experiments/sample_cases.json')
     parser.add_argument('--models', nargs='+', help='Generation model IDs; defaults to GEMINI_MODEL.')
     parser.add_argument('--output-dir', type=Path, default=BASE_DIR / 'results')
     parser.add_argument('--limit', type=int, help='Run only the first N cases.')
     parser.add_argument('--resume', type=Path, help='Reuse successful rows from a matching earlier report; retry failures only.')
+    parser.add_argument('--max-retries', type=int, default=2, help='Additional attempts per provider stage, from 0 to 3 (default 2).')
+    parser.add_argument('--max-retry-delay', type=float, default=30, help='Maximum retry wait in seconds, from 0 to 60.')
     parser.add_argument('--request-interval', type=float, default=4, help='Minimum seconds between calls to the same model (0–60).')
     parser.add_argument('--model-interval', action='append', default=[], metavar='MODEL=SECONDS', help='Override the request interval for a particular model.')
     args = parser.parse_args()
     if not math.isfinite(args.request_interval) or not 0 <= args.request_interval <= 60:
         parser.error('--request-interval must be between 0 and 60')
+    if not 0 <= args.max_retries <= 3:
+        parser.error('--max-retries must be between 0 and 3')
+    if not math.isfinite(args.max_retry_delay) or not 0 <= args.max_retry_delay <= 60:
+        parser.error('--max-retry-delay must be between 0 and 60')
     intervals = {}
     for item in args.model_interval:
         try:
@@ -82,11 +68,30 @@ def main():
         nonlocal completed
         completed += 1
         print(f"[{completed}/{len(cases) * len(models)}] {row['model']} / {row['case_id']}: {row['status']}" + (' (reused)' if row.get('reused') else ''), flush=True)
+    writer = None
     try:
-        report = run_benchmark(cases, models, settings, on_result=progress, request_interval=args.request_interval, model_intervals=intervals, prior_report=prior)
+        writer = ReportWriter(args.output_dir)
+        print('Progress file:', writer.json_path, flush=True)
+        report = run_benchmark(cases, models, settings, on_result=progress, request_interval=args.request_interval, model_intervals=intervals, prior_report=prior, on_checkpoint=writer.checkpoint, max_retries=args.max_retries, max_retry_delay=args.max_retry_delay)
     except ValueError:
         parser.exit(2, 'Resume report does not match the dataset, judge, or generation settings, or has invalid completed rows.\n')
-    paths = save_report(report, args.output_dir)
+    except KeyboardInterrupt:
+        if writer is not None and writer.json_path.exists():
+            print('Stopped. Resume from:', writer.json_path, flush=True)
+        else:
+            print('Stopped before a progress file could be saved.', flush=True)
+        return 130
+    except OSError:
+        print('Unable to save progress; run stopped. Check the output folder and any existing checkpoint.', flush=True)
+        return 1
+    try:
+        paths = writer.finish(report)
+    except KeyboardInterrupt:
+        print('Export stopped. The completed JSON checkpoint remains available:', writer.json_path, flush=True)
+        return 130
+    except OSError:
+        print('Unable to finish exporting reports; the latest valid JSON checkpoint remains available.', flush=True)
+        return 1
     for summary in report['summary']:
         print(json.dumps(summary))
     print('Saved:', *paths, sep='\n')

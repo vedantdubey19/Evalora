@@ -2,6 +2,7 @@ from google import genai
 from google.genai import types
 
 from app.core.config import Settings
+from app.services.provider_failures import classify_failure
 
 
 class ConfigurationError(Exception):
@@ -9,9 +10,10 @@ class ConfigurationError(Exception):
 
 
 class ProviderError(Exception):
-    def __init__(self, message='Gemini request failed.', *, reason='provider_error'):
+    def __init__(self, message='Gemini request failed.', *, reason='provider_error', retry_after=None):
         super().__init__(message)
         self.reason = reason
+        self.retry_after = retry_after
 
 
 class GeminiClient:
@@ -51,5 +53,5 @@ class GeminiClient:
             raise
         except Exception as error:
             # Provider exceptions can contain request URLs, keys, or user content.
-            reason = {429: 'rate_limited', 404: 'model_unavailable', 503: 'provider_unavailable'}.get(getattr(error, 'code', None), 'provider_error')
-            raise ProviderError(reason=reason) from None
+            reason, retry_after = classify_failure(error)
+            raise ProviderError(reason=reason, retry_after=retry_after) from None

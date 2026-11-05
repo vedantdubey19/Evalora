@@ -103,7 +103,8 @@ def test_rate_limit_stops_calls_for_the_affected_model(reason):
     cases = validate_cases([{'id': str(i), 'question': 'Q', 'reference': 'R'} for i in range(3)])
     report = run_benchmark(cases, ['limited'], Settings(_env_file=None), Limited)
     assert len(calls) == 1
-    assert report['summary'][0]['failures'] == 3
+    assert report['summary'][0]['failures'] == 1
+    assert report['summary'][0]['skipped'] == 2
     assert all(r['error_reason'] == reason for r in report['results'])
 
 
@@ -177,7 +178,8 @@ def test_unavailable_judge_stops_further_generation():
     report = run_benchmark(cases, ['a', 'b'], Settings(_env_file=None), Fake)
     assert calls == [False, True]
     assert report['results'][1]['error_reason'] == 'judge_provider_unavailable'
-    assert sum(s['failures'] for s in report['summary']) == 4
+    assert sum(s['failures'] for s in report['summary']) == 1
+    assert sum(s['skipped'] for s in report['summary']) == 3
 
 
 def test_resume_retries_only_failed_cases():
